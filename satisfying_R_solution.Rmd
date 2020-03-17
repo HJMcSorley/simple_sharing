@@ -1,0 +1,182 @@
+---
+title: "satisfying R solution"
+author: "Hannah McSorley"
+date: "16/03/2020"
+output: 
+  html_document:
+    theme: sandstone
+    highlight: zenburn
+---
+
+This is a copy of the GitHub issue thred discussion I had with my data science teacher (but mostly with myself) about some thesis coding that I was stuck on. I've basically copy-and-pasted the discussion here, for you to read as an html page.
+
+## Initial post:
+
+
+Hello @firasm 👋 
+_I'll also tag the TAs in case they have suggestions_ 😄
+@matthewconnell @andrealee011 @yuliaUU 
+
+Here is a summary of the MSc coding challenge I'm working on (this is for my thesis work):
+
+I have two dataframes (df1 is considerably longer than df2) and their key variables are:
+```
+df1:
+  DateTime  # continuous time series at 10-min intervals
+  Trip      # Trip = c(1:23) where each Trip (field-trip) identified a specific time span (interval) 
+  Height    # key variable that was logged at 10 minute intervals
+  Site      # Six unique sites  
+```
+```
+df2:
+  Site       # same as above
+  Trip       # same as above
+  Sample     # unique identifier for collected item / corresponds to 'obs_height' 
+  obs_height # singular observed value that corresponds to "df1$Height"
+```
+
+__R goal:__
+Create a new variable (column) in ```df2``` that identifies the ```DateTime``` at which each ```Sample``` was obtained based on matching ```obs_height``` to ```Height```.
+
+My approach was something like: 
+* For each ```Sample``` at each ```Site```, use the ```Trip``` ID to isolate the ```DateTime``` that corresponds to the first occurrence at which ```df1$Height``` was equal to or greater than ```df2$obs_height```.
+
+When I had complete 4 field trips, I accomplished this task in a _really horrible way_ by subsetting each of df1 and df2 for each Site and each Trip and running a for loop on each subset dataframe (for this example I'll stick with using "df1" and "df2" but note that these were subsets in practice... so ugly, I know ☹️):
+```
+# create an empty vector to hold the outputs from the loop
+occur_index <- vector(length = nrow(df2))
+# isolate the vector of Datetimes for later extraction
+DT<- df1$DateTime
+
+# find the index for the first occurrence of 'Height' equaling or exceeding 'obs_height'
+for (i in seq_along(df2$Sample)) {
+  occur_index[i] <- purrr::detect_index(df1$Height, ~ .x >= df2$obs_height[i], .dir = "forward")
+} 
+
+# then create the new df2 column with corresponding DateTime from df1
+df2 %>% 
+  mutate(sample_time = DT[occur_index])
+``` 
+
+This hacky method worked OK when I had fewer trips, but it was a horrible mess of subset dataframes and copy and paste. It's terrible to look at and it's not reproducible. 
+
+🙏  I am sure there's a better way!!! 
+
+* I think that I should be able to use the ```Trip``` variable (essentially a span of DateTime) to narrow down df1 into more manageable sections to work on (but I'm not sure how).
+* I still need to use the values in ```df2$obs_height``` to locate the first occurrence at which ```df1$Height >= df2$obs_height``` in order to extract corresponding ```df1$DateTime```.... I'm just not sure what the best method is. 
+
+I feel like there might be some option using ```dplyr::case_when()``` or ```tidyr::nest()```, or one of the ```purrr::map*()``` functions... but, I dunno. 🤷‍♀ 
+
+I don't need the final code to be impressive or groundbreaking, but I would like to create something reproducible and logical. 
+
+Any help or suggestions will be greatly appreciated!
+
+Thanks in advance 😅 
+  
+Hannah
+
+
+## His Reply:
+
+I posted your issue to my other (much larger) class in MDS. Here's one reply (pasting as-is):
+
+There is some missing info (relationship between Height and obs_height are there missing rows in either df?) which makes it hard to help this person, but here is my take:
+
+
+* group in each df by Site & Trip, this should result in corresponding groups in the two df's that are hopefully of the same number of rows (several rows per Site + Trip, depending on how many observations were registered each time).
+* We are now left with the problem of matching the individual observations for each Site + Trip in each df, and this is where the missing info is a problem – But, assuming the measurement method is consistent within each df, which would mean that the relative relationship between the measurements of Height and obs_height (again per trip+site) should be consistent between the two DF:
+
+* A possible method to matching the Height to obs_height (again per trip+site) by ranking the internal relative size, and then match the two sets by that ranking, again only assuming that the internal relative relationship is maintained.
+*For example, a set of measurements that goes something like [8,5,6,4,12] and another set would be [26, 40, 25.5, 8, 12], the corresponding ranks would be
+    [R_4, R_2, R_3, R_1, R_5] and [r_4, r_5, r_3, r_1, r_2] and then organise the rows such that R_i = r_i.
+   * This method won't work if there are missing rows
+
+
+### My reply
+
+Thank you. 
+
+I suppose my initial inquiry wasn't quite clear enough, I'll try to clarify and provide more details.
+
+* there are no missing rows in either dataframe
+* df1 is ***much*** longer than df2 -- they ***do not*** have the same number of rows.
+
+* df1 is a time series of river stage ('Height'), logged at ten-minute intervals
+  * this is a continuous time series of measurements taken every ten minutes 
+  * there are six sites, named as levels of a factor ('site')
+    * at each site, there is 16 months of data -- this is a long df
+  * the time series can be grouped into 23 unique spans of time which correspond to field visits (trips)
+      * the 'trips' variable is a factor with levels (1:23) representing each 'trip' interval
+
+* df2 includes qualitative ID variables of river samples collected at singular points in time 
+  * the date and time of sample collection **is unknown**  
+  * the river stage ('obs_height') at which the sample was collected **is known**
+    * 'obs_height' corresponds to at least one 'Height' measurement in df1 (I want the first occurrence at which Height is equal to or exceeds 'obs_height')
+  * there are six sites (the same 6 sites as in df1), named as levels of a factor ('site')
+  * each set of samples corresponds to one of 23 field visits (trips)
+
+* the variables that are common to both data frames, are 'trip' and 'site' (these can be used for matching)
+* The 'obs_height' value for each sample in df2 (for each trip, and each site) needs to be matched to the first instance at which that value (df2$obs_height) occurred in df1$'Height' 
+
+The plot below shows what I'm after (for each of the six sites), but I achieved the matching in a horrible way that was not reproducible. 
+
+![image](https://user-images.githubusercontent.com/42976622/76575139-91e9e000-647b-11ea-9f7d-dfd76db00ffe.png)
+
+In this plot: 
+
+  * the blue line is ```df1$Height``` (river stage) 
+  * x = is ```df1$DateTime```, y = ```df1$Height```
+  * the points are samples from df2
+    * for each point (sample), the DateTime of collection was extracted from df1 based on indexing the first occurrence at which ```df1$Height >= df$2obs_height``` (for each 'trip', for each 'site')
+
+
+I wonder if this may require for loops (or possibly nested loops)?  I thought there might be a way to achieve it with case_when() or a map or apply function...
+
+essentially, I think I need to:
+
+* group by trip, site and sample 
+  * e.g. *for each trip (1:23)... for each site (unique name)... and for each sample within those groupings...
+* pass over df1 (by groups) and find the first instance at which 'Height' equaled or exceeded the 'obs_height' value that corresponded to each sample.
+
+I know this is a complex issue, I hope I've explained it better here than previously.
+
+
+### My reply to my own reply:
+
+I solved it!! I think it was helpful to just explain what i was trying to do. I woke up this morning and though about how I ultimately just want to join these two dataframes, and worked back from that and got it!
+
+I made it so much more complicated than it had to be. Below is a simplified summary of what I ended up doing. Basically, I grouped each dataframe by the key variables, then I used dplyr::distinct() to condense the long dataframe (that contained the desired DateTimes) so that only the first occurrence of the matching variable 'height' was listed (because there were multiple instances of the same value in sequence), then I did a left_join() and that merged the two dataframes into one where each sample had a proper DateTime based on it's matching 'height'. Yay! 
+
+ ```
+df1:
+	DateTime : POSIXct
+    trip		: factor w/ 23 levels
+	site		: factor w/ 6 levels
+	height      : num
+	
+df2:
+	trip		    : factor w/ 23 levels
+	site		    : factor w/ 6 levels
+    sample         : num
+	obs_height  : num
+	
+# group the shorter dataframe 
+# change matching variable to same name as df1
+df2 %>% 
+	group_by(site, trip) %>% 	   
+        rename(height = obs_height) 
+	
+# group longer dataframe with DateTime
+# use 'distinct' to compress
+# keep all other variables in the dataframe
+# join with df2
+result <- df1 %>% 
+	group_by(site, trip) %>%   
+        dplyr::distinct(height, .keep_all = TRUE) %>%
+	left_join(df2, by = c("site", "trip", "height")) 
+```
+From there, I could manipulate the result dataframe as I needed, but this achieved all the matching i needed to do. And it was  infinitely better than the janky code I'd written before, didn't involve uneccessary subsetting and is reproducible and logical. I'm stoked. 
+
+Thank you for your willingness to help and for posing it to your other class!
+👍 
+Hannah
